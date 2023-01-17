@@ -1,34 +1,9 @@
-> **Warning**  
-> このリポジトリはもうメンテナンスされていません。[pjsekai-soundgen-rust](https://github.com/sevenc-nanashi/pjsekai-soundgen-rust)を使用してください。
-
 # pjsekai-soundgen / プロセカ風譜面音声生成ツール
+Modified to generate tap sound for guess game for [Unibot](https://github.com/watagashi-uni/Unibot)
 
-pjsekai-soundgen は、[SweetPotato](https://potato.purplepalette.net)の譜面から音声を生成するツールです。
+# Reference
 
-## 必須事項
-
-- [Python 3.9 以上](https://www.python.org/downloads/)
-- [PATH 上の ffmpeg](https://ffmpeg.org/)
-
-## 利用方法
-
-0. Python をインストールする。
-1. `pip install poetry`で Poetry をインストールする。
-2. `poetry install`で依存パッケージをインストールする。
-3. `poetry run python main.py`で実行する。
-
-## 注意
-
-動画の概要欄などに、自分（=名無し｡）の
-
-- 名前（`名無し｡`）
-- Twitter のプロフィール
-- このリポジトリへのリンク
-- YouTube のチャンネル
-
-が分かる文章を載せて下さい。
-
-#### 例
+[sevenc-nanashi/pjsekai-soundgen](https://github.com/sevenc-nanashi/pjsekai-soundgen)
 
 ```
 プロセカ風譜面音声生成ツール：

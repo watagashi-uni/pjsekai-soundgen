@@ -97,166 +97,129 @@ print(
 {color_escape(0xff5a91)}-------------------------------------------------------------------------------\033[m
 """.strip()
 )
-parser = argparse.ArgumentParser(add_help=False)
-parser.add_argument("id", metavar="ID", help="曲のID。省略すると検索モードになります。", nargs="?")
-parser.add_argument("-h", "--help", action="help", default=argparse.SUPPRESS, help="使い方を表示して終了します。")
-parser.add_argument("--bgm-override", "-b", type=str, help="上書きするBGMのファイル名を指定します。")
-parser.add_argument("--offset", "-g", type=float, help="オフセットを指定します。SEがずらされます。", default=0.0)
-parser.add_argument("--silent", "-s", action="store_true", help="SEだけを生成します。")
-parser.add_argument("--output", "-o", type=str, help="出力ファイル名を指定します。省略するとdist/ID.mp3になります。")
 
-args = parser.parse_args()
 
 volume = 0.5
 session = requests.Session()
-if args.id:
-    level_id = args.id
-    if level_id.startswith("#"):
-        level_id = level_id[1:]
-    level_resp = session.get(f"https://servers-legacy.purplepalette.net/levels/{level_id}")
-    if level_resp.status_code != 200:
-        exit(f"{level_id} を見つけられませんでした。")
-    level = level_resp.json()["item"]
-else:
-    print("曲名、またはIDを入力してください。\nIDを入力する場合は、先頭に「#」を付けてください。")
-    name = input("> ").strip()
-    if name.startswith("#"):
-        resp = session.get(f"https://servers-legacy.purplepalette.net/levels/{name[1:]}")
-        if resp.status_code != 200:
-            exit(f"{name} を見つけられませんでした。")
-        levels: LevelList = {"items": [resp.json()["item"]]}
-    else:
-        keywords = quote(name.encode("utf-8"))
-        levels: LevelList = session.get(
-            f"https://servers-legacy.purplepalette.net/levels/list?keywords={keywords}"
-        ).json()
 
-    if not levels["items"]:
-        exit("曲が見つかりませんでした。")
-    elif len(levels["items"]) == 1:
-        print("この曲でよろしいですか？\n")
-        level = levels["items"][0]
-        print(f"{level['title']} / {level['author']} #{level['name']}\n")
-        while True:
-            choice = input("Y/N > ")
-            if choice.upper() == "Y":
-                break
-            elif choice.upper() == "N":
-                exit("キャンセルしました。")
-    else:
-        print("曲を選択して下さい。入力無しでキャンセルします: \n")
-        for i, level in enumerate(levels["items"]):
-            print(f"{i + 1}) {level['title']} / {level['author']} #{level['name']}")
-        print("")
-        while True:
-            index = input("> ")
-            if index == "":
-                print("キャンセルしました。")
-                exit()
-            try:
-                index = int(index)
-                level = levels["items"][index - 1]
-                break
-            except (ValueError, IndexError):
-                pass
-print(f"{level['title']} / {level['author']} #{level['name']} を選択しました。")
+proxy = '127.0.0.1:7890'
+proxies = {
+    'http': 'http://' + proxy,
+    'https': 'http://' + proxy
+}
+unibotDir = 'E:/bot/unibot'
 
-total_time = time.time()
-bgm_data = session.get("https://servers.purplepalette.net" + level["bgm"]["url"]).content
-bgm = pydub.AudioSegment.from_file(io.BytesIO(bgm_data)).apply_gain(0.5)
-if args.bgm_override:
-    bgm = pydub.AudioSegment.from_file(args.bgm_override)
-if args.silent:
+with open(f'{unibotDir}/masterdata/musicVocals.json', 'r', encoding='utf-8') as f:
+    musicVocals = json.load(f)
+with open(f'{unibotDir}/masterdata/musics.json', 'r', encoding='utf-8') as f:
+    musics = json.load(f)
+
+def genSound(musicid):
+    total_time = time.time()
+    for vocal in musicVocals:
+        if vocal['musicId'] == musicid:
+            name = vocal['assetbundleName']
+            vocalId = vocal['id']
+    bgm = pydub.AudioSegment.from_file(
+        rf'{unibotDir}/data\assets\sekai\assetbundle\resources\ondemand\music\long\{name}\{name}.mp3').apply_gain(0.5)
+
     bgm = (
         pydub.AudioSegment.silent(duration=bgm.duration_seconds * 1000)
         .set_frame_rate(bgm.frame_rate)
         .set_channels(bgm.channels)
     )
-bgm_length = len(bgm)
-SEG_MAP = {
-    name: sync_segment(bgm, pydub.AudioSegment.from_mp3(f"./sounds/{name}.mp3")).apply_gain(volume)
-    for name in SOUND_MAP.values()
-}
 
-CONNECT_SEG = {
-    9: sync_segment(bgm, pydub.AudioSegment.from_mp3("./sounds/connect.mp3")).apply_gain(volume),
-    16: sync_segment(bgm, pydub.AudioSegment.from_mp3("./sounds/connect_critical.mp3")).apply_gain(volume),
-}
+    SEG_MAP = {
+        name: sync_segment(bgm, pydub.AudioSegment.from_mp3(f"./sounds/{name}.mp3")).apply_gain(volume)
+        for name in SOUND_MAP.values()
+    }
 
-chart_data_gzip = session.get("https://servers.purplepalette.net" + level["data"]["url"]).content
-chart_data: LevelData = json.loads(gzip.decompress(chart_data_gzip).decode("utf-8"))
-print("音声を合成中...")
-single_sounds: dict[int, set] = {}
-hold_sounds = {9: [], 16: []}
-for i, entity in enumerate(chart_data["entities"], 1):
-    if entity["archetype"] < 3:
-        continue
-    if entity["archetype"] in [9, 16]:
-        hold_sounds[entity["archetype"]].append((1, round(entity["data"]["values"][0] * 1000)))
-        hold_sounds[entity["archetype"]].append((-1, round(entity["data"]["values"][3] * 1000)))
-    if SOUND_MAP.get(entity["archetype"]) is None:
-        continue
-    if single_sounds.get(entity["archetype"]) is None:
-        single_sounds[entity["archetype"]] = set()
-    single_sounds[entity["archetype"]].add(round(entity["data"]["values"][0] * 1000))
+    CONNECT_SEG = {
+        9: sync_segment(bgm, pydub.AudioSegment.from_mp3("./sounds/connect.mp3")).apply_gain(volume),
+        16: sync_segment(bgm, pydub.AudioSegment.from_mp3("./sounds/connect_critical.mp3")).apply_gain(volume),
+    }
 
-for single_sound_key, single_sound_positions in single_sounds.items():
-    single_sounds[single_sound_key] = sorted(single_sound_positions)
-start_time = time.time()
-eta = "??:??"
-shift = -min(sum(single_sounds.values(), [0]))
-bgm = pydub.AudioSegment.silent(duration=shift) + bgm
-print("単ノーツの音声を生成中:")
-with tqdm(total=sum(map(len, single_sounds.values())), unit="notes", colour="#8693f6") as pbar:
-    for sound, positions in single_sounds.items():
-        seg = SEG_MAP[SOUND_MAP[sound]]
-        for i, position in enumerate(sorted(positions)):
-            play_position = position + shift + args.offset * 1000
-            bgm = overlay_without_sync(bgm, seg, play_position)
-            pbar.update(1)
+    chart_data_gzip = session.get(f"https://servers.sonolus.com/pjsekai/sonolus/levels/pjsekai-{musicid}-{vocalId}-master/data?0.2.1",
+                           proxies=proxies).content
+    chart_data: LevelData = json.loads(gzip.decompress(chart_data_gzip).decode("utf-8"))
+    print("音声を合成中...")
+    single_sounds: dict[int, set] = {}
+    hold_sounds = {9: [], 16: []}
+    for i, entity in enumerate(chart_data["entities"], 1):
+        if entity["archetype"] < 3:
+            continue
+        if entity["archetype"] in [9, 16]:
+            hold_sounds[entity["archetype"]].append((1, round(entity["data"]["values"][0] * 1000)))
+            hold_sounds[entity["archetype"]].append((-1, round(entity["data"]["values"][3] * 1000)))
+        if SOUND_MAP.get(entity["archetype"]) is None:
+            continue
+        if single_sounds.get(entity["archetype"]) is None:
+            single_sounds[entity["archetype"]] = set()
+        single_sounds[entity["archetype"]].add(round(entity["data"]["values"][0] * 1000))
 
-print("\n長押しノーツの音声を生成中:")
-for ari, (archetype, slide_notes) in enumerate(hold_sounds.items(), 1):
-    print(f"  {ari}/2")
-    count = 0
-    ranges = []
-    slide_notes.sort(key=lambda x: (x[1], -x[0]))
-    for diff, ntime in slide_notes:
-        count += diff
-        assert count >= 0
-        if count == 1 and diff == 1:
-            ranges.append([ntime, None])
-        elif count == 0 and diff == -1:
-            ranges[-1][1] = ntime
-    assert count == 0
-
+    for single_sound_key, single_sound_positions in single_sounds.items():
+        single_sounds[single_sound_key] = sorted(single_sound_positions)
+    start_time = time.time()
     eta = "??:??"
-    for start, end in tqdm(ranges, unit="notes", colour=("#5be29c" if archetype == 9 else "#feb848")):
-        if start < 0:
-            start = 0
-        bgm = overlay_without_sync_loop(
-            bgm, CONNECT_SEG[archetype], start + shift + args.offset * 1000, end + shift + args.offset * 1000
-        )
-    print("")
+    shift = -min(sum(single_sounds.values(), [0]))
+    bgm = pydub.AudioSegment.silent(duration=shift) + bgm
+    print("単ノーツの音声を生成中:")
+    with tqdm(total=sum(map(len, single_sounds.values())), unit="notes", colour="#8693f6") as pbar:
+        for sound, positions in single_sounds.items():
+            seg = SEG_MAP[SOUND_MAP[sound]]
+            for i, position in enumerate(sorted(positions)):
+                play_position = position + shift
+                bgm = overlay_without_sync(bgm, seg, play_position)
+                pbar.update(1)
 
-print("音声を出力中...")
-dist = args.output or f"./dist/{level['name']}.mp3"
-while True:
-    try:
-        bgm.export(
-            dist,
-            format="mp3",
-            bitrate="256k",
-            parameters=["-minrate", "256k", "-maxrate", "256k"],
-        )
-    except PermissionError:
-        print(f"{dist} への出力に失敗しました。ファイルへの書き込み権限があるか確認してください。10秒後に再試行します。")
-        if os.name == "nt":
-            print("また、ファイルが開かれている可能性もあります。")
-        print("Ctrl+Cで中断します。")
-        time.sleep(10)
-    else:
-        break
-print(f"完了しました。音声は {dist} に出力されました。")
-total_time = time.time() - start_time
-print(f"合計時間: {int(total_time / 60)}:{int(total_time % 60):02d}")
+    print("\n長押しノーツの音声を生成中:")
+    for ari, (archetype, slide_notes) in enumerate(hold_sounds.items(), 1):
+        print(f"  {ari}/2")
+        count = 0
+        ranges = []
+        slide_notes.sort(key=lambda x: (x[1], -x[0]))
+        for diff, ntime in slide_notes:
+            count += diff
+            assert count >= 0
+            if count == 1 and diff == 1:
+                ranges.append([ntime, None])
+            elif count == 0 and diff == -1:
+                ranges[-1][1] = ntime
+        assert count == 0
+
+        eta = "??:??"
+        for start, end in tqdm(ranges, unit="notes", colour=("#5be29c" if archetype == 9 else "#feb848")):
+            if start < 0:
+                start = 0
+            bgm = overlay_without_sync_loop(
+                bgm, CONNECT_SEG[archetype], start + shift, end + shift
+            )
+        print("")
+
+    print("音声を出力中...")
+    dist = f"./dist/{musicid}.mp3"
+    while True:
+        try:
+            bgm.export(
+                dist,
+                format="mp3",
+                bitrate="256k",
+                parameters=["-minrate", "256k", "-maxrate", "256k"],
+            )
+        except PermissionError:
+            print(f"{dist} への出力に失敗しました。ファイルへの書き込み権限があるか確認してください。10秒後に再試行します。")
+            if os.name == "nt":
+                print("また、ファイルが開かれている可能性もあります。")
+            print("Ctrl+Cで中断します。")
+            time.sleep(10)
+        else:
+            break
+    print(f"完了しました。音声は {dist} に出力されました。")
+    total_time = time.time() - start_time
+    print(f"合計時間: {int(total_time / 60)}:{int(total_time % 60):02d}")
+
+if __name__ == '__main__':
+    for music in musics:
+        if not os.path.exists(f"./dist/{music['id']}.mp3"):
+            print(music['title'])
+            genSound(music['id'])
